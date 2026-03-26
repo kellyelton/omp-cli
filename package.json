@@ -1,6 +1,6 @@
 {
   "name": "oh-my-posh-cli",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "CLI tool for cycling through Oh My Posh themes in bash",
   "main": "index.js",
   "bin": {
