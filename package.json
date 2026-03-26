@@ -1,0 +1,14 @@
+{
+  "name": "omp-cli",
+  "version": "1.0.0",
+  "description": "CLI tool for cycling through Oh My Posh themes in bash",
+  "main": "index.js",
+  "bin": {
+    "omp": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": ["oh-my-posh", "themes", "cli"],
+  "license": "MIT"
+}
