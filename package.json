@@ -4,11 +4,29 @@
   "description": "CLI tool for cycling through Oh My Posh themes in bash",
   "main": "index.js",
   "bin": {
-    "omp": "./index.js"
+    "omp-cli": "./index.js"
   },
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "test": "node --test --test-reporter=spec test/*.test.js",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "changeset publish"
   },
-  "keywords": ["oh-my-posh", "themes", "cli"],
-  "license": "MIT"
+  "keywords": [
+    "oh-my-posh",
+    "themes",
+    "cli"
+  ],
+  "author": "Kelly Elton",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.30.0"
+  }
 }
