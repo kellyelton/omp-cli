@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 
-const { parseArgs } = require('node:util');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execSync } = require('node:child_process');
@@ -12,7 +11,6 @@ const THEMES_DIR = process.env.OMP_CLI_THEMES_DIR || path.join(CONFIG_DIR, 'them
 const STATE_FILE = path.join(CONFIG_DIR, 'current-theme');
 const BASHRC = process.env.OMP_CLI_BASHRC || path.join(HOME, '.bashrc');
 const REPO_URL = 'https://github.com/JanDeDobbeleer/oh-my-posh.git';
-const SELF_PATH = path.resolve(__filename);
 
 // --- Helpers ---
 
@@ -34,10 +32,11 @@ function getSortedThemes() {
   if (!fs.existsSync(THEMES_DIR)) {
     return [];
   }
-  return fs.readdirSync(THEMES_DIR)
+  const themesPath = fs.realpathSync(THEMES_DIR);
+  return fs.readdirSync(themesPath)
     .filter(f => f.endsWith('.omp.json'))
     .sort()
-    .map(f => path.join(THEMES_DIR, f));
+    .map(f => path.join(themesPath, f));
 }
 
 function getCurrentTheme() {
@@ -65,24 +64,84 @@ function emitThemeSwitch(themePath) {
   shellOutput(`export POSH_THEME="${themePath}"; eval "$(oh-my-posh init bash --config '${themePath}')"`);
 }
 
+function isSetupNeeded() {
+  // Themes not downloaded
+  if (!fs.existsSync(THEMES_DIR) || getSortedThemes().length === 0) {
+    return 'themes';
+  }
+  // .bashrc not configured
+  if (fs.existsSync(BASHRC)) {
+    const content = fs.readFileSync(BASHRC, 'utf-8');
+    if (!content.includes('# --- omp-cli integration')) {
+      return 'bashrc';
+    }
+  }
+  return null;
+}
+
+function ensureSetup() {
+  const needed = isSetupNeeded();
+  if (!needed) return;
+
+  if (needed === 'themes') {
+    info('First run detected — downloading themes and configuring shell...');
+    info('');
+    cmdSetup();
+    info('');
+    info('Run `source ~/.bashrc` to activate in this session.');
+    info('');
+  } else if (needed === 'bashrc') {
+    info('.bashrc is not configured. Running setup...');
+    info('');
+    cmdSetup();
+    info('');
+    info('Run `source ~/.bashrc` to activate in this session.');
+    info('');
+  }
+}
+
 // --- Commands ---
 
-function cmdSetup() {
+function cmdSetup(customThemesPath) {
   ensureConfigDir();
 
-  // 1. Clone themes via sparse checkout if not present
-  if (!fs.existsSync(THEMES_DIR)) {
+  // 1. Set up themes directory
+  if (customThemesPath) {
+    // User provided a custom themes path
+    const resolved = path.resolve(customThemesPath);
+    if (!fs.existsSync(resolved)) {
+      info(`Error: themes path does not exist: ${resolved}`);
+      process.exit(1);
+    }
+
+    // Check it actually has theme files
+    const files = fs.readdirSync(resolved).filter(f => f.endsWith('.omp.json'));
+    if (files.length === 0) {
+      info(`Error: no .omp.json files found in ${resolved}`);
+      process.exit(1);
+    }
+
+    // Remove existing themes link/dir if present
+    if (fs.existsSync(THEMES_DIR)) {
+      fs.rmSync(THEMES_DIR, { recursive: true, force: true });
+    }
+
+    // Symlink to the custom path
+    fs.symlinkSync(resolved, THEMES_DIR);
+    info(`Themes linked to ${resolved} (${files.length} themes found)`);
+  } else if (!fs.existsSync(THEMES_DIR)) {
+    // Clone themes via sparse checkout
     info('Downloading Oh My Posh themes...');
+    const repoDir = path.join(CONFIG_DIR, 'repo');
     try {
-      execSync(`git clone --depth 1 --filter=blob:none --sparse "${REPO_URL}" "${path.join(CONFIG_DIR, 'repo')}"`, { stdio: 'pipe' });
-      execSync('git sparse-checkout set themes', { cwd: path.join(CONFIG_DIR, 'repo'), stdio: 'pipe' });
+      execSync(`git clone --depth 1 --filter=blob:none --sparse "${REPO_URL}" "${repoDir}"`, { stdio: 'pipe' });
+      execSync('git sparse-checkout set themes', { cwd: repoDir, stdio: 'pipe' });
     } catch (e) {
       info(`Error cloning themes repo: ${e.message}`);
       process.exit(1);
     }
 
-    // Symlink the themes directory for easy access
-    const repoThemes = path.join(CONFIG_DIR, 'repo', 'themes');
+    const repoThemes = path.join(repoDir, 'themes');
     fs.symlinkSync(repoThemes, THEMES_DIR);
     info(`Themes installed to ${THEMES_DIR}`);
   } else {
@@ -110,8 +169,8 @@ function cmdSetup() {
   const ompFuncBlock = [
     '# --- omp-cli integration (managed by omp-cli, do not edit) ---',
     `export POSH_THEME="$(cat "${STATE_FILE}" 2>/dev/null || echo "${current}")"`,
-    `omp() { eval "$(node "${SELF_PATH}" "$@")"; }`,
-    `eval "$(oh-my-posh init bash --config "$POSH_THEME")"`,
+    'omp() { eval "$(command omp "$@")"; }',
+    'eval "$(oh-my-posh init bash --config "$POSH_THEME")"',
     '# --- end omp-cli integration ---',
   ].join('\n');
 
@@ -119,7 +178,6 @@ function cmdSetup() {
   const endMarker = '# --- end omp-cli integration ---';
 
   if (bashrcContent.includes(startMarker)) {
-    // Replace existing block
     const regex = new RegExp(
       startMarker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
       '[\\s\\S]*?' +
@@ -129,7 +187,6 @@ function cmdSetup() {
     fs.writeFileSync(BASHRC, updated);
     info('Updated existing omp-cli block in .bashrc');
   } else {
-    // Remove bare oh-my-posh init line if present, replace with our block
     const bareInit = /^eval "\$\(oh-my-posh init bash\)"$/m;
     let updated;
     if (bareInit.test(bashrcContent)) {
@@ -151,6 +208,7 @@ function cmdSetup() {
 }
 
 function cmdNext() {
+  ensureSetup();
   const themes = getSortedThemes();
   if (themes.length === 0) {
     info('No themes found. Run `omp setup` first.');
@@ -165,6 +223,7 @@ function cmdNext() {
 }
 
 function cmdPrev() {
+  ensureSetup();
   const themes = getSortedThemes();
   if (themes.length === 0) {
     info('No themes found. Run `omp setup` first.');
@@ -201,24 +260,29 @@ function cmdStatus() {
 
   // Check themes
   const repoDir = path.join(CONFIG_DIR, 'repo');
-  if (fs.existsSync(repoDir)) {
-    info(`Themes repo: ${repoDir}`);
-    try {
-      execSync('git fetch --dry-run', { cwd: repoDir, stdio: 'pipe' });
-      const local = execSync('git rev-parse HEAD', { cwd: repoDir, encoding: 'utf-8' }).trim();
-      const remote = execSync('git rev-parse @{u}', { cwd: repoDir, encoding: 'utf-8', stdio: 'pipe' }).trim();
-      if (local === remote) {
-        info('Themes repo: up to date');
-      } else {
-        info('Themes repo: updates available (run `omp update`)');
+  if (fs.existsSync(THEMES_DIR)) {
+    const realPath = fs.realpathSync(THEMES_DIR);
+    info(`Themes path: ${realPath}`);
+    if (fs.existsSync(repoDir)) {
+      try {
+        execSync('git fetch --dry-run', { cwd: repoDir, stdio: 'pipe' });
+        const local = execSync('git rev-parse HEAD', { cwd: repoDir, encoding: 'utf-8' }).trim();
+        const remote = execSync('git rev-parse @{u}', { cwd: repoDir, encoding: 'utf-8', stdio: 'pipe' }).trim();
+        if (local === remote) {
+          info('Themes repo: up to date');
+        } else {
+          info('Themes repo: updates available (run `omp update`)');
+        }
+      } catch {
+        info('Themes repo: unable to check remote status');
       }
-    } catch {
-      info('Themes repo: unable to check remote status');
+    } else {
+      info('Themes source: custom directory (not managed by omp)');
     }
     const themes = getSortedThemes();
     info(`Themes available: ${themes.length}`);
   } else {
-    info('Themes repo: NOT INSTALLED (run `omp setup`)');
+    info('Themes: NOT INSTALLED (run `omp setup`)');
   }
 
   info('');
@@ -261,12 +325,13 @@ if (args.length === 0) {
   info('Usage: omp <command>');
   info('');
   info('Commands:');
-  info('  setup      - install themes and configure .bashrc');
-  info('  next       - switch to next theme');
-  info('  prev       - switch to previous theme');
-  info('  previous   - switch to previous theme');
-  info('  update     - update themes from GitHub');
-  info('  status     - check installation status');
+  info('  setup [path]   - install themes and configure .bashrc');
+  info('                   optionally provide a path to an existing themes folder');
+  info('  next           - switch to next theme');
+  info('  prev           - switch to previous theme');
+  info('  previous       - switch to previous theme');
+  info('  update         - update themes from GitHub');
+  info('  status         - check installation status');
   process.exit(0);
 }
 
@@ -274,7 +339,7 @@ const command = args[0].toLowerCase();
 
 switch (command) {
   case 'setup':
-    cmdSetup();
+    cmdSetup(args[1] || null);
     break;
   case 'next':
     cmdNext();
