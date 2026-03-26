@@ -1,5 +1,11 @@
 # omp-cli
 
+## 1.1.2
+
+### Patch Changes
+
+- 699c412: Fix bin name from omp-cli to omp so the command is `omp` after global install
+
 ## 1.1.1
 
 ### Patch Changes
