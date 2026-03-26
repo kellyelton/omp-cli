@@ -5,12 +5,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execSync } = require('node:child_process');
 
-// --- Paths ---
+// --- Paths (overridable via env for testing) ---
 const HOME = process.env.HOME || process.env.USERPROFILE;
-const CONFIG_DIR = path.join(HOME, '.config', 'omp-cli');
-const THEMES_DIR = path.join(CONFIG_DIR, 'themes');
+const CONFIG_DIR = process.env.OMP_CLI_CONFIG_DIR || path.join(HOME, '.config', 'omp-cli');
+const THEMES_DIR = process.env.OMP_CLI_THEMES_DIR || path.join(CONFIG_DIR, 'themes');
 const STATE_FILE = path.join(CONFIG_DIR, 'current-theme');
-const BASHRC = path.join(HOME, '.bashrc');
+const BASHRC = process.env.OMP_CLI_BASHRC || path.join(HOME, '.bashrc');
 const REPO_URL = 'https://github.com/JanDeDobbeleer/oh-my-posh.git';
 const SELF_PATH = path.resolve(__filename);
 
